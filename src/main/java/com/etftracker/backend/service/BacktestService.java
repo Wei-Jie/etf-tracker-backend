@@ -2,6 +2,8 @@ package com.etftracker.backend.service;
 
 import com.etftracker.backend.dto.BacktestHistoryPointDTO;
 import com.etftracker.backend.dto.BacktestResultDTO;
+import com.etftracker.backend.dto.ProjectionResultDTO;
+import com.etftracker.backend.dto.ProjectionResultDTO.ProjectionYearPointDTO;
 import com.etftracker.backend.model.AssetInfo;
 import com.etftracker.backend.model.DividendHistory;
 import com.etftracker.backend.model.PriceHistory;
@@ -12,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.*;
@@ -223,4 +226,109 @@ public class BacktestService {
         }
         return null;
     }
+
+    /**
+     * 未來資產增值模擬（Projection）
+     *
+     * 以歷史回測得到的 CAGR（年化複合成長率）作為基準，模擬在持續定期定額投入的情況下，
+     * 未來 N 年末的預估資產總值。計算採用逐年複利模型：
+     *   - 每年期初以 CAGR 計算該年度持有資產的增長
+     *   - 每年持續扣款投入，以月複利折算（近似值）
+     *
+     * @param ticker            標的代號
+     * @param backtestStartDate 歷史回測起始日（用來計算 CAGR 的區間）
+     * @param backtestEndDate   歷史回測結束日
+     * @param investmentAmount  每次扣款金額
+     * @param investmentDays    每月扣款日清單（用於計算每月總扣款次數）
+     * @param reinvestDividends 是否將股利再投資（影響歷史 CAGR 計算）
+     * @param projectionYears   模擬總年限（1-30）
+     * @return ProjectionResultDTO 未來模擬結果
+     */
+    public ProjectionResultDTO runProjection(
+            String ticker,
+            LocalDate backtestStartDate,
+            LocalDate backtestEndDate,
+            BigDecimal investmentAmount,
+            List<Integer> investmentDays,
+            boolean reinvestDividends,
+            int projectionYears) {
+
+        // 1. 先執行歷史回測取得基準 CAGR
+        BacktestResultDTO backtestResult = runDcaBacktest(
+                ticker, backtestStartDate, backtestEndDate,
+                investmentAmount, investmentDays, reinvestDividends);
+
+        // 2. 計算歷史回測的年化複合成長率（CAGR）
+        //    CAGR = (最終市值 / 投入本金)^(1/年數) - 1
+        //    若投入本金為 0 或年數不足 1 年，則預設 CAGR 為 0
+        long totalDays = backtestStartDate.until(backtestEndDate, java.time.temporal.ChronoUnit.DAYS);
+        double years = totalDays / 365.25;
+
+        BigDecimal cagr = BigDecimal.ZERO;
+        if (backtestResult.getTotalInvested().compareTo(BigDecimal.ZERO) > 0 && years >= 1.0) {
+            double finalValueDouble = backtestResult.getCurrentValue().doubleValue();
+            double investedDouble = backtestResult.getTotalInvested().doubleValue();
+            double cagrDouble = Math.pow(finalValueDouble / investedDouble, 1.0 / years) - 1.0;
+            // 限制 CAGR 在 -50% 到 +100% 之間以防異常值
+            cagrDouble = Math.max(-0.5, Math.min(1.0, cagrDouble));
+            cagr = BigDecimal.valueOf(cagrDouble).setScale(4, RoundingMode.HALF_UP);
+        }
+
+        // 3. 計算每月總扣款金額（扣款日數 * 每次扣款金額）
+        BigDecimal monthlyTotal = investmentAmount.multiply(BigDecimal.valueOf(investmentDays.size()));
+
+        // 4. 逐年模擬
+        //    模型：每年底 = (去年底市值 + 本年全年分攤新投入) * (1 + CAGR)
+        //    以近似逐年模型計算（把當年投入的金額視為均勻投入，平均享有半年增長）
+        List<ProjectionYearPointDTO> yearlyPoints = new ArrayList<>();
+        BigDecimal currentPortfolioValue = backtestResult.getCurrentValue(); // 以回測末期市值為起點
+        BigDecimal cumulativeInvested = backtestResult.getTotalInvested();
+
+        BigDecimal annualInvestment = monthlyTotal.multiply(BigDecimal.valueOf(12));
+        BigDecimal growthFactor = BigDecimal.ONE.add(cagr);
+
+        for (int y = 1; y <= projectionYears; y++) {
+            // 本年新增投入在增長後的終值（視為年中平均投入，享有半年複利：* sqrt(1+CAGR)）
+            double halfYearGrowth = Math.sqrt(growthFactor.doubleValue());
+            BigDecimal newInvestmentFV = annualInvestment.multiply(
+                    BigDecimal.valueOf(halfYearGrowth)).setScale(2, RoundingMode.HALF_UP);
+
+            // 本年底市值 = 去年底市值 * (1 + CAGR) + 本年新投入終值
+            currentPortfolioValue = currentPortfolioValue.multiply(growthFactor)
+                    .add(newInvestmentFV)
+                    .setScale(2, RoundingMode.HALF_UP);
+
+            cumulativeInvested = cumulativeInvested.add(annualInvestment).setScale(2, RoundingMode.HALF_UP);
+
+            yearlyPoints.add(new ProjectionYearPointDTO(y, cumulativeInvested, currentPortfolioValue));
+        }
+
+        // 5. 取得最後一年的模擬結果
+        BigDecimal projectedFinalValue = yearlyPoints.get(yearlyPoints.size() - 1).getProjectedValue();
+        BigDecimal projectedTotalInvested = yearlyPoints.get(yearlyPoints.size() - 1).getCumulativeInvested();
+        BigDecimal projectedTotalReturn = projectedFinalValue.subtract(projectedTotalInvested)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        // 取得標的名稱
+        AssetInfo asset = assetInfoRepository.findByTicker(ticker)
+                .orElseThrow(() -> new IllegalArgumentException("找不到指定的標的代號: " + ticker));
+
+        String cagrBasePeriod = backtestStartDate + " 至 " + backtestEndDate;
+
+        return new ProjectionResultDTO(
+                ticker,
+                asset.getName(),
+                cagrBasePeriod,
+                cagr,
+                backtestResult.getCurrentValue(),
+                investmentAmount,
+                investmentDays.size(),
+                projectionYears,
+                yearlyPoints,
+                projectedTotalInvested,
+                projectedFinalValue,
+                projectedTotalReturn
+        );
+    }
 }
+
