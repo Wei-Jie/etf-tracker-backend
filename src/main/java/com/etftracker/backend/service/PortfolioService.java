@@ -1,12 +1,17 @@
 package com.etftracker.backend.service;
 
+import com.etftracker.backend.dto.AddHoldingRequestDTO;
+import com.etftracker.backend.dto.HoldingRecordDTO;
 import com.etftracker.backend.dto.PortfolioSummaryDTO;
 import com.etftracker.backend.dto.PortfolioSummaryDTO.PortfolioHoldingDTO;
+import com.etftracker.backend.model.AssetInfo;
 import com.etftracker.backend.model.UserPortfolio;
+import com.etftracker.backend.repository.AssetInfoRepository;
 import com.etftracker.backend.repository.PriceHistoryRepository;
 import com.etftracker.backend.repository.UserPortfolioRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -15,7 +20,8 @@ import java.util.stream.Collectors;
 
 /**
  * 投資組合業務邏輯服務
- * 計算使用者的持倉市值、平均成本、未實現損益與各資產佔比
+ * 計算使用者的持倉市值、平均成本、未實現損益與各資產佔比，
+ * 同時提供新增、刪除交易明細的寫入操作
  */
 @Service
 public class PortfolioService {
@@ -25,6 +31,84 @@ public class PortfolioService {
 
     @Autowired
     private PriceHistoryRepository priceHistoryRepository;
+
+    @Autowired
+    private AssetInfoRepository assetInfoRepository;
+
+    /**
+     * 查詢所有交易明細（raw records），依資產代號與買入日期排序
+     *
+     * @return 所有持倉交易紀錄列表
+     */
+    public List<HoldingRecordDTO> getAllHoldingRecords() {
+        return portfolioRepository.findAllByOrderByAsset_TickerAscBuyDateAsc()
+                .stream()
+                .map(p -> {
+                    BigDecimal totalCost = p.getQuantity().multiply(p.getUnitPrice())
+                            .setScale(2, RoundingMode.HALF_UP);
+                    return new HoldingRecordDTO(
+                            p.getPortfolioId(),
+                            p.getAsset().getTicker(),
+                            p.getAsset().getName(),
+                            p.getBuyDate(),
+                            p.getQuantity(),
+                            p.getUnitPrice(),
+                            totalCost
+                    );
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 新增一筆買入持倉紀錄
+     *
+     * @param request 包含 ticker、buyDate、quantity、unitPrice 的請求 DTO
+     * @return 新增成功後的交易明細 DTO
+     * @throws IllegalArgumentException 若找不到對應的資產代號
+     */
+    @Transactional
+    public HoldingRecordDTO addHolding(AddHoldingRequestDTO request) {
+        // 驗證資產是否存在
+        AssetInfo asset = assetInfoRepository.findByTicker(request.getTicker().trim().toUpperCase())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "找不到標的代號 \"" + request.getTicker() + "\"，請確認輸入的代號是否正確。"));
+
+        // 建立新紀錄
+        UserPortfolio newRecord = new UserPortfolio();
+        newRecord.setAsset(asset);
+        newRecord.setBuyDate(request.getBuyDate());
+        newRecord.setQuantity(request.getQuantity());
+        newRecord.setUnitPrice(request.getUnitPrice());
+
+        UserPortfolio saved = portfolioRepository.save(newRecord);
+
+        BigDecimal totalCost = saved.getQuantity().multiply(saved.getUnitPrice())
+                .setScale(2, RoundingMode.HALF_UP);
+
+        return new HoldingRecordDTO(
+                saved.getPortfolioId(),
+                saved.getAsset().getTicker(),
+                saved.getAsset().getName(),
+                saved.getBuyDate(),
+                saved.getQuantity(),
+                saved.getUnitPrice(),
+                totalCost
+        );
+    }
+
+    /**
+     * 刪除指定 ID 的持倉交易紀錄
+     *
+     * @param portfolioId 要刪除的持倉紀錄 ID
+     * @throws IllegalArgumentException 若找不到對應的紀錄
+     */
+    @Transactional
+    public void deleteHolding(Long portfolioId) {
+        if (!portfolioRepository.existsById(portfolioId)) {
+            throw new IllegalArgumentException("找不到 ID 為 " + portfolioId + " 的持倉紀錄。");
+        }
+        portfolioRepository.deleteById(portfolioId);
+    }
 
     /**
      * 取得使用者的投資組合總覽
