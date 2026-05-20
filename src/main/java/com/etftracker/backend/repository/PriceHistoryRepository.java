@@ -17,4 +17,8 @@ public interface PriceHistoryRepository extends JpaRepository<PriceHistory, Long
 
     // 依 Ticker 查詢所有歷史股價，並按日期遞增排序，方便前端畫圖
     List<PriceHistory> findAllByAsset_TickerOrderByTradeDateAsc(String ticker);
+
+    // 依 Ticker 查詢特定時間區間內歷史股價，並按日期遞增排序，供回測使用
+    List<PriceHistory> findAllByAsset_TickerAndTradeDateBetweenOrderByTradeDateAsc(
+            String ticker, LocalDate startDate, LocalDate endDate);
 }
