@@ -36,4 +36,7 @@ public class HoldingRecordDTO {
 
     /** 小計成本（quantity * unitPrice） */
     private BigDecimal totalCost;
+
+    /** 持倉擁有人 */
+    private String owner;
 }

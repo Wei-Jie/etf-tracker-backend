@@ -40,8 +40,8 @@ public class PortfolioService {
      *
      * @return 所有持倉交易紀錄列表
      */
-    public List<HoldingRecordDTO> getAllHoldingRecords() {
-        return portfolioRepository.findAllByOrderByAsset_TickerAscBuyDateAsc()
+    public List<HoldingRecordDTO> getAllHoldingRecords(String owner) {
+        return portfolioRepository.findAllByOwnerOrderByAsset_TickerAscBuyDateAsc(owner)
                 .stream()
                 .map(p -> {
                     BigDecimal totalCost = p.getQuantity().multiply(p.getUnitPrice())
@@ -53,7 +53,8 @@ public class PortfolioService {
                             p.getBuyDate(),
                             p.getQuantity(),
                             p.getUnitPrice(),
-                            totalCost
+                            totalCost,
+                            p.getOwner()
                     );
                 })
                 .collect(Collectors.toList());
@@ -79,6 +80,7 @@ public class PortfolioService {
         newRecord.setBuyDate(request.getBuyDate());
         newRecord.setQuantity(request.getQuantity());
         newRecord.setUnitPrice(request.getUnitPrice());
+        newRecord.setOwner(request.getOwner() != null ? request.getOwner().trim() : "自己");
 
         UserPortfolio saved = portfolioRepository.save(newRecord);
 
@@ -92,7 +94,8 @@ public class PortfolioService {
                 saved.getBuyDate(),
                 saved.getQuantity(),
                 saved.getUnitPrice(),
-                totalCost
+                totalCost,
+                saved.getOwner()
         );
     }
 
@@ -116,9 +119,9 @@ public class PortfolioService {
      *
      * @return 投資組合總覽 PortfolioSummaryDTO
      */
-    public PortfolioSummaryDTO getPortfolioSummary() {
+    public PortfolioSummaryDTO getPortfolioSummary(String owner) {
         // 1. 取得所有持倉記錄
-        List<UserPortfolio> allHoldings = portfolioRepository.findAllByOrderByAsset_TickerAscBuyDateAsc();
+        List<UserPortfolio> allHoldings = portfolioRepository.findAllByOwnerOrderByAsset_TickerAscBuyDateAsc(owner);
 
         if (allHoldings.isEmpty()) {
             return new PortfolioSummaryDTO(
@@ -215,5 +218,17 @@ public class PortfolioService {
                 totalUnrealizedReturnRate,
                 holdingDTOs
         );
+    }
+
+    /**
+     * 取得系統中現存所有不重複的擁有人清單，並預設至少包含 "自己"
+     */
+    @Transactional(readOnly = true)
+    public List<String> getUniqueOwners() {
+        List<String> owners = portfolioRepository.findDistinctOwners();
+        if (owners == null || owners.isEmpty()) {
+            return Collections.singletonList("自己");
+        }
+        return owners;
     }
 }

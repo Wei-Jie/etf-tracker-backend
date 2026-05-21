@@ -29,10 +29,18 @@ public class EtfService {
     }
 
     /**
-     * 獲取特定 Ticker (如 0050) 的完整歷史價格紀錄（依日期排序）
+     * 獲取特定 Ticker (如 0050) 的歷史價格紀錄（依日期排序），可指定時間範圍
      */
     @Transactional(readOnly = true)
-    public List<PriceHistory> getPriceHistory(String ticker) {
+    public List<PriceHistory> getPriceHistory(String ticker, java.time.LocalDate startDate, java.time.LocalDate endDate) {
+        if (startDate != null && endDate != null) {
+            return priceHistoryRepository.findAllByAsset_TickerAndTradeDateBetweenOrderByTradeDateAsc(ticker, startDate, endDate);
+        }
         return priceHistoryRepository.findAllByAsset_TickerOrderByTradeDateAsc(ticker);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PriceHistory> getPriceHistory(String ticker) {
+        return getPriceHistory(ticker, null, null);
     }
 }

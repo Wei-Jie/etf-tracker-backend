@@ -27,4 +27,20 @@ public interface UserPortfolioRepository extends JpaRepository<UserPortfolio, Lo
      * @return 所有投資組合持有記錄
      */
     List<UserPortfolio> findAllByOrderByAsset_TickerAscBuyDateAsc();
+
+    /**
+     * 依擁有人查詢所有持倉，依資產代號與買入日期排序
+     */
+    List<UserPortfolio> findAllByOwnerOrderByAsset_TickerAscBuyDateAsc(String owner);
+
+    /**
+     * 依擁有人與資產代號查詢持倉，依買入日期排序
+     */
+    List<UserPortfolio> findAllByOwnerAndAsset_TickerOrderByBuyDateAsc(String owner, String ticker);
+
+    /**
+     * 查詢目前資料庫中所有不重複的擁有人清單
+     */
+    @org.springframework.data.jpa.repository.Query("SELECT DISTINCT p.owner FROM UserPortfolio p")
+    List<String> findDistinctOwners();
 }

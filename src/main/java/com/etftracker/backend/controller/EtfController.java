@@ -30,15 +30,18 @@ public class EtfController {
     }
 
     /**
-     * 獲取特定 Ticker 的歷史價格
-     * GET /api/v1/etfs/{ticker}/prices
+     * 獲取特定 Ticker 的歷史價格，支援時間區間篩選
+     * GET /api/v1/etfs/{ticker}/prices?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
      */
     @GetMapping("/{ticker}/prices")
-    public ResponseEntity<List<PriceHistoryDTO>> getPriceHistory(@PathVariable String ticker) {
-        List<PriceHistoryDTO> historyList = etfService.getPriceHistory(ticker)
-                .stream()
-                .map(ph -> new PriceHistoryDTO(ph.getTradeDate(), ph.getClosingPrice()))
-                .collect(Collectors.toList());
+    public ResponseEntity<List<PriceHistoryDTO>> getPriceHistory(
+            @PathVariable String ticker,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate startDate,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate endDate) {
+        List<PriceHistoryDTO> historyList = etfService.getPriceHistory(ticker, startDate, endDate)
+                 .stream()
+                 .map(ph -> new PriceHistoryDTO(ph.getTradeDate(), ph.getClosingPrice()))
+                 .collect(Collectors.toList());
         return ResponseEntity.ok(historyList);
     }
 }

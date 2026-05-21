@@ -36,4 +36,8 @@ public class AddHoldingRequestDTO {
     @NotNull(message = "買入單價不能為空")
     @DecimalMin(value = "0.01", message = "買入單價必須大於 0")
     private BigDecimal unitPrice;
+
+    /** 持倉擁有人（例如 先生、太太），預設為 自己 */
+    @NotBlank(message = "持倉擁有人不能為空")
+    private String owner = "自己";
 }

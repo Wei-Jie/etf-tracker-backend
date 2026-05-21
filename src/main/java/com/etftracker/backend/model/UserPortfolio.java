@@ -30,6 +30,9 @@ public class UserPortfolio {
     @SequenceGenerator(name = "user_portfolio_seq", sequenceName = "user_portfolio_seq", allocationSize = 50)
     private Long portfolioId;
 
+    @Column(nullable = false)
+    private String owner = "自己";
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "asset_id", nullable = false)
     private AssetInfo asset;

@@ -29,6 +29,13 @@ public class ApiKeyFilter extends OncePerRequestFilter {
             return;
         }
 
+        // 放行輕量級健康檢查與防冷啟動端點 (GET /api/v1/health)
+        String path = request.getRequestURI();
+        if ("GET".equalsIgnoreCase(request.getMethod()) && (path.endsWith("/api/v1/health") || path.endsWith("/api/v1/health/"))) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         // 擷取 Header 中的 API Key
         String reqApiKey = request.getHeader(API_KEY_HEADER);
 

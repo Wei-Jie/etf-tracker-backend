@@ -29,9 +29,9 @@ public class PortfolioController {
      * @return 交易明細列表 List<HoldingRecordDTO>
      */
     @GetMapping("/holdings")
-    public ResponseEntity<?> getAllHoldings() {
+    public ResponseEntity<?> getAllHoldings(@RequestParam(value = "owner", defaultValue = "自己") String owner) {
         try {
-            List<HoldingRecordDTO> records = portfolioService.getAllHoldingRecords();
+            List<HoldingRecordDTO> records = portfolioService.getAllHoldingRecords(owner);
             return ResponseEntity.ok(records);
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("查詢持倉明細時發生錯誤：" + e.getMessage());
@@ -81,12 +81,26 @@ public class PortfolioController {
      * @return 投資組合摘要 PortfolioSummaryDTO
      */
     @GetMapping("/summary")
-    public ResponseEntity<?> getPortfolioSummary() {
+    public ResponseEntity<?> getPortfolioSummary(@RequestParam(value = "owner", defaultValue = "自己") String owner) {
         try {
-            PortfolioSummaryDTO summary = portfolioService.getPortfolioSummary();
+            PortfolioSummaryDTO summary = portfolioService.getPortfolioSummary(owner);
             return ResponseEntity.ok(summary);
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("查詢投資組合時發生錯誤：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 查詢目前所有不重複的持倉人員名單
+     * GET /api/v1/portfolio/owners
+     */
+    @GetMapping("/owners")
+    public ResponseEntity<?> getUniqueOwners() {
+        try {
+            List<String> owners = portfolioService.getUniqueOwners();
+            return ResponseEntity.ok(owners);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("查詢人員清單時發生錯誤：" + e.getMessage());
         }
     }
 }
