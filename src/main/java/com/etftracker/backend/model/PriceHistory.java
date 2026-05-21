@@ -16,7 +16,8 @@ import java.time.LocalDate;
 public class PriceHistory {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "price_history_seq")
+    @SequenceGenerator(name = "price_history_seq", sequenceName = "price_history_seq", allocationSize = 100)
     private Long historyId;
 
     @ManyToOne(fetch = FetchType.LAZY)

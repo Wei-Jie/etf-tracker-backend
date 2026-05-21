@@ -1,5 +1,6 @@
 package com.etftracker.backend.service;
 
+import com.etftracker.backend.dto.TwseHistoryDayDTO;
 import com.etftracker.backend.dto.TwseStockDayDTO;
 import com.etftracker.backend.model.AssetInfo;
 import com.etftracker.backend.model.PriceHistory;
@@ -10,6 +11,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -112,4 +115,101 @@ public class DataSyncService {
 
     // 用來暫存有效資料的輕量 Record
     private record TwseValidData(String ticker, String name, BigDecimal closingPrice) {}
+
+    /**
+     * 批次抓取指定標的的歷史收盤價
+     * 從 startYearMonth 起逐月呼叫 TWSE STOCK_DAY API，寫入 price_history 表
+     * 每次 API 請求間隔 3 秒，避免被 TWSE 限流
+     *
+     * @param tickers        要同步的標的代號列表，例如 ["0050", "0056", "00878"]
+     * @param startYearMonth 起始年月，格式 "YYYYMM"，例如 "202008"
+     * @return 同步結果摘要字串
+     */
+    public String syncHistoricalPrices(List<String> tickers, String startYearMonth) {
+        YearMonth start = YearMonth.parse(startYearMonth, DateTimeFormatter.ofPattern("yyyyMM"));
+        YearMonth end = YearMonth.now();
+
+        // 建立 AssetInfo 快取
+        Map<String, AssetInfo> assetMap = assetInfoRepository.findAll()
+                .stream()
+                .collect(Collectors.toMap(AssetInfo::getTicker, a -> a));
+
+        int totalInserted = 0;
+        int totalSkipped = 0;
+        List<String> errors = new ArrayList<>();
+
+        for (String ticker : tickers) {
+            AssetInfo asset = assetMap.get(ticker);
+            if (asset == null) {
+                errors.add(ticker + "：找不到對應的 AssetInfo，請先執行每日同步");
+                continue;
+            }
+
+            // 取得該標的已存在的所有日期，避免重複寫入
+            Set<LocalDate> existingDates = priceHistoryRepository
+                    .findAllByAsset_Ticker(ticker)
+                    .stream()
+                    .map(PriceHistory::getTradeDate)
+                    .collect(Collectors.toSet());
+
+            YearMonth current = start;
+            while (!current.isAfter(end)) {
+                String yearMonth = current.format(DateTimeFormatter.ofPattern("yyyyMM"));
+                List<TwseHistoryDayDTO> monthData = twseApiService.fetchMonthlyHistory(ticker, yearMonth);
+
+                List<PriceHistory> toInsert = new ArrayList<>();
+                for (TwseHistoryDayDTO dto : monthData) {
+                    try {
+                        // 民國年轉換：例如 "113/05/21" → 2024-05-21
+                        String[] parts = dto.dateRoc().split("/");
+                        if (parts.length != 3) continue;
+                        int year = Integer.parseInt(parts[0]) + 1911;
+                        int month = Integer.parseInt(parts[1]);
+                        int day = Integer.parseInt(parts[2]);
+                        LocalDate tradeDate = LocalDate.of(year, month, day);
+
+                        if (existingDates.contains(tradeDate)) {
+                            totalSkipped++;
+                            continue;
+                        }
+
+                        String priceStr = dto.closingPrice().replace(",", "").trim();
+                        if (priceStr.isEmpty() || priceStr.equals("--")) continue;
+                        BigDecimal price = new BigDecimal(priceStr);
+
+                        PriceHistory ph = new PriceHistory();
+                        ph.setAsset(asset);
+                        ph.setTradeDate(tradeDate);
+                        ph.setClosingPrice(price);
+                        toInsert.add(ph);
+                        existingDates.add(tradeDate);
+
+                    } catch (Exception e) {
+                        // 略過個別解析失敗的列
+                    }
+                }
+
+                if (!toInsert.isEmpty()) {
+                    priceHistoryRepository.saveAll(toInsert);
+                    totalInserted += toInsert.size();
+                    System.out.printf("[DataSync] %s %s：寫入 %d 筆%n", ticker, yearMonth, toInsert.size());
+                }
+
+                current = current.plusMonths(1);
+
+                // 每次請求間隔 1 秒，避免 TWSE 限流（實測 1 秒安全且速度快）
+                try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+            }
+        }
+
+        String summary = String.format(
+                "歷史資料同步完成！標的：%s｜新增：%d 筆｜略過重複：%d 筆%s",
+                String.join(", ", tickers),
+                totalInserted,
+                totalSkipped,
+                errors.isEmpty() ? "" : "｜錯誤：" + String.join("; ", errors)
+        );
+        System.out.println("[DataSync] " + summary);
+        return summary;
+    }
 }

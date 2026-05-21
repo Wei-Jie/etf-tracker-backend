@@ -13,7 +13,8 @@ import lombok.AllArgsConstructor;
 public class AssetInfo {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "asset_info_seq")
+    @SequenceGenerator(name = "asset_info_seq", sequenceName = "asset_info_seq", allocationSize = 50)
     private Long assetId;
 
     @Column(nullable = false, unique = true)
