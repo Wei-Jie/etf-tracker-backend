@@ -47,3 +47,9 @@ logs/
 .env
 .env.local
 .env.*.local
+
+### 敏感設定檔（含帳號密碼，絕對不可提交）###
+application-local.yml
+application-local.properties
+*-secret.yml
+*-secret.properties

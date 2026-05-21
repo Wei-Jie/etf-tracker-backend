@@ -2,9 +2,12 @@ spring:
   application:
     name: etf-tracker
   datasource:
-    url: ${DB_URL:jdbc:postgresql://aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?prepareThreshold=0&rewriteBatchedInserts=true}
-    username: ${DB_USERNAME:postgres.qirtgmojnsuecgzuovjj}
-    password: ${DB_PASSWORD:Jwkl13365!@#$%}
+    # 敏感資訊請透過環境變數設定，不可硬寫在此檔案
+    # 本機開發：請在 IDE Run Config 或系統環境變數中設定 DB_URL / DB_USERNAME / DB_PASSWORD
+    # 參考範例請見 application-local.yml.example
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:

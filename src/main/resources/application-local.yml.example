@@ -1,0 +1,16 @@
+# ========================================================
+# application-local.yml.example
+# 本機開發用設定範例
+# 複製此檔案為 application-local.yml 並填入真實數值
+# 注意：application-local.yml 已加入 .gitignore，不會被提交
+# ========================================================
+
+spring:
+  datasource:
+    url: jdbc:postgresql://<your-supabase-host>:6543/postgres?prepareThreshold=0&rewriteBatchedInserts=true
+    username: <your-db-username>
+    password: <your-db-password>
+
+app:
+  api-key: <your-api-key>
+  frontend-url: http://localhost:5173
