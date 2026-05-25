@@ -1,23 +1,26 @@
 package com.etftracker.backend.controller;
 
 import com.etftracker.backend.service.DataSyncService;
+import com.etftracker.backend.service.ReportService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 /**
- * 資料同步工作 Controller
- * 提供手動觸發 TWSE 資料同步的 REST API 端點
+ * 資料同步與排程工作 Controller
+ * 提供手動觸發 TWSE 資料同步與定時 Email 發報的 REST API 端點
  */
 @RestController
 @RequestMapping("/api/v1/jobs")
 public class JobController {
 
     private final DataSyncService dataSyncService;
+    private final ReportService reportService;
 
-    public JobController(DataSyncService dataSyncService) {
+    public JobController(DataSyncService dataSyncService, ReportService reportService) {
         this.dataSyncService = dataSyncService;
+        this.reportService = reportService;
     }
 
     /**
@@ -55,6 +58,22 @@ public class JobController {
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.internalServerError().body("歷史資料同步失敗：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 定期資產損益與持倉報表寄送工作
+     * POST /api/v1/jobs/send-periodic-reports
+     * 受 ApiKeyFilter 防護，需於 Headers 攜帶正確的 X-API-KEY
+     */
+    @PostMapping("/send-periodic-reports")
+    public ResponseEntity<String> sendPeriodicReports() {
+        try {
+            String result = reportService.sendPeriodicReports();
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body("定期報表發送失敗：" + e.getMessage());
         }
     }
 }
