@@ -57,6 +57,16 @@ public class DailyDataSyncScheduler {
     @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Taipei")
     public void autoGenerateAndSendDailyBriefing() {
         System.out.println("[Scheduler] 開始執行今日 AI 財經要聞晨報排程，當前時間: " + LocalDateTime.now());
+        sendDailyBriefingTo(receiverEmail);
+    }
+
+    /**
+     * 指定收件人發送今日 AI 電子晨報
+     *
+     * @param targetEmail 收件者信箱
+     */
+    public void sendDailyBriefingTo(String targetEmail) {
+        System.out.println("[Scheduler] 觸發 AI 財經要聞晨報發送，目標信箱: " + targetEmail);
         try {
             // 1. 自動觸發今日新聞爬取、Gemini AI 3.5 摘要與資料庫快取
             String briefHtml = briefingService.getTodayBriefing();
@@ -83,12 +93,13 @@ public class DailyDataSyncScheduler {
                     + "</body></html>";
 
             // 3. 呼叫 EmailService 寄出信件
-            emailService.sendHtmlEmail(receiverEmail, "📈 ETF Tracker 每日 AI 財經要聞晨報 ☕", mailContent);
-            System.out.println("[Scheduler] 今日 AI 財經要聞晨報已成功發送至您的信箱: " + receiverEmail);
+            emailService.sendHtmlEmail(targetEmail, "📈 ETF Tracker 每日 AI 財經要聞晨報 ☕", mailContent);
+            System.out.println("[Scheduler] 今日 AI 財經要聞晨報已成功發送至您的信箱: " + targetEmail);
 
         } catch (Exception e) {
-            System.err.println("[Scheduler] 今日 AI 財經要聞晨報排程執行失敗，原因: " + e.getMessage());
+            System.err.println("[Scheduler] 今日 AI 財經要聞晨報發送失敗，目標: " + targetEmail + "，原因: " + e.getMessage());
             e.printStackTrace();
+            throw new RuntimeException("發送電子晨報郵件失敗，原因: " + e.getMessage());
         }
     }
 }
