@@ -39,3 +39,5 @@ server:
 app:
   api-key: ${API_KEY:default-dev-secret-key}
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  gemini-api-key: ${GEMINI_API_KEY:}
+  gemini-model: ${GEMINI_MODEL:gemini-3.5-flash}
