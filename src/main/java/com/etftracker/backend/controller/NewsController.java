@@ -1,6 +1,7 @@
 package com.etftracker.backend.controller;
 
 import com.etftracker.backend.service.BriefingService;
+import com.etftracker.backend.scheduler.DailyDataSyncScheduler;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,9 +20,11 @@ import java.util.Map;
 public class NewsController {
 
     private final BriefingService briefingService;
+    private final DailyDataSyncScheduler dailyDataSyncScheduler;
 
-    public NewsController(BriefingService briefingService) {
+    public NewsController(BriefingService briefingService, DailyDataSyncScheduler dailyDataSyncScheduler) {
         this.briefingService = briefingService;
+        this.dailyDataSyncScheduler = dailyDataSyncScheduler;
     }
 
     /**
@@ -48,6 +51,19 @@ public class NewsController {
         response.put("briefingHtml", briefHtml);
         response.put("success", true);
         response.put("message", "今日 AI 晨報已強制重新生成！");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 手動測試並發送今日 AI 電子晨報 (受 X-API-KEY 安全保護)
+     * POST /api/v1/news/briefing/test-email
+     */
+    @PostMapping("/briefing/test-email")
+    public ResponseEntity<Map<String, Object>> testSendEmail() {
+        dailyDataSyncScheduler.autoGenerateAndSendDailyBriefing();
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "今日 AI 財經晨報電子報已成功發送至您的 Gmail 信箱！");
         return ResponseEntity.ok(response);
     }
 }
