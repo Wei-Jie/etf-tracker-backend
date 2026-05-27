@@ -41,3 +41,4 @@ app:
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
   gemini-api-key: ${GEMINI_API_KEY:}
   gemini-model: ${GEMINI_MODEL:gemini-3.5-flash}
+  receiver-email: ${RECEIVER_EMAIL:jeff.wang0211@gmail.com}

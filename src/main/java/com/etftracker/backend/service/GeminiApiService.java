@@ -36,7 +36,7 @@ public class GeminiApiService {
     public String generateBriefingHtml(String rawNews) {
         // 若使用者尚未配置 API Key，則回傳提醒配置的精美說明
         if (geminiApiKey == null || geminiApiKey.trim().isEmpty()) {
-            return "<div class='briefing-notice'>⚠️ <strong>系統提示</strong>：目前尚未配置 <code>GEMINI_API_KEY</code> 環境變數，AI 財經助理處於離線狀態。<br/>請至您的 GCP Cloud Run 環境變數或本地開發環境配置您的 Gemini API Key，即可立刻解鎖極具技術含金量的 3.5 代 AI 自動摘要功能！</div>";
+            return "<div class='briefing-notice'>⚠️ <strong>系統提示</strong>：目前尚未配置 <code>GEMINI_API_KEY</code> 環境變數，AI 財經助理處於離線狀態。<br/>請至您的 GCP Cloud Run 環境變數或本地開發環境配置您的 Gemini API Key，即可立刻解鎖極具技術含金量的新一代 Gemini AI 自動摘要功能！</div>";
         }
 
         // 使用備份與防錯機制的呼叫方法

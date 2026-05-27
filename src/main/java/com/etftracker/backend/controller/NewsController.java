@@ -28,7 +28,7 @@ public class NewsController {
     private final DailyDataSyncScheduler dailyDataSyncScheduler;
     private final MemberProfileRepository memberProfileRepository;
 
-    @Value("${spring.mail.username}")
+    @Value("${app.receiver-email:jeff.wang0211@gmail.com}")
     private String defaultReceiverEmail;
 
     public NewsController(BriefingService briefingService,

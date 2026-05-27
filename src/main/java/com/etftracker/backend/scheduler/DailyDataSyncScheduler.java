@@ -21,7 +21,7 @@ public class DailyDataSyncScheduler {
     private final BriefingService briefingService;
     private final EmailService emailService;
 
-    @Value("${spring.mail.username}")
+    @Value("${app.receiver-email:jeff.wang0211@gmail.com}")
     private String receiverEmail;
 
     public DailyDataSyncScheduler(DataSyncService dataSyncService,
