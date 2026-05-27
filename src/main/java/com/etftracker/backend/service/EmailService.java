@@ -36,7 +36,18 @@ public class EmailService {
         MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
         
         helper.setFrom(senderEmail);
-        helper.setTo(to);
+        
+        // 支援以逗號分割的多人收件人
+        if (to != null && to.contains(",")) {
+            String[] addresses = to.split(",");
+            for (int i = 0; i < addresses.length; i++) {
+                addresses[i] = addresses[i].trim();
+            }
+            helper.setTo(addresses);
+        } else if (to != null) {
+            helper.setTo(to.trim());
+        }
+        
         helper.setSubject(subject);
         
         // 設定 text 且 isHtml = true，使郵件客戶端正確解析 HTML
