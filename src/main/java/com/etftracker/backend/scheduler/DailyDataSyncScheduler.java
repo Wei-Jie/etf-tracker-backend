@@ -76,7 +76,7 @@ public class DailyDataSyncScheduler {
                     + "<div style='max-width: 600px; margin: 0 auto; background: #ffffff; padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid rgba(178,123,94,0.1);'>"
                     + "<div style='text-align: center; border-bottom: 2px solid #b27b5e; padding-bottom: 15px; margin-bottom: 20px;'>"
                     + "<h2 style='color: #b27b5e; margin: 0;'>📈 ETF Tracker 理財晨報</h2>"
-                    + "<p style='color: #7a6e67; margin: 5px 0 0 0; font-size: 13px;'>您的專屬 AI 3.5 Flash 財經晨報助理</p>"
+                    + "<p style='color: #7a6e67; margin: 5px 0 0 0; font-size: 13px;'>您的專屬 Gemini AI 財經晨報助理</p>"
                     + "</div>"
                     + "<style>"
                     + ".brief-wrapper { display: flex; flex-direction: column; gap: 20px; }"
