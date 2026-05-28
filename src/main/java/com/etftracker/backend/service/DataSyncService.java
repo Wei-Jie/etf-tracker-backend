@@ -6,6 +6,7 @@ import com.etftracker.backend.model.AssetInfo;
 import com.etftracker.backend.model.PriceHistory;
 import com.etftracker.backend.repository.AssetInfoRepository;
 import com.etftracker.backend.repository.PriceHistoryRepository;
+import com.etftracker.backend.repository.UserPortfolioRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,16 +23,19 @@ public class DataSyncService {
     private final TwseApiService twseApiService;
     private final AssetInfoRepository assetInfoRepository;
     private final PriceHistoryRepository priceHistoryRepository;
+    private final UserPortfolioRepository userPortfolioRepository;
 
     // 每次批次寫入的資料筆數
     private static final int BATCH_SIZE = 100;
 
     public DataSyncService(TwseApiService twseApiService,
                            AssetInfoRepository assetInfoRepository,
-                           PriceHistoryRepository priceHistoryRepository) {
+                           PriceHistoryRepository priceHistoryRepository,
+                           UserPortfolioRepository userPortfolioRepository) {
         this.twseApiService = twseApiService;
         this.assetInfoRepository = assetInfoRepository;
         this.priceHistoryRepository = priceHistoryRepository;
+        this.userPortfolioRepository = userPortfolioRepository;
     }
 
     @Transactional
@@ -60,14 +64,25 @@ public class DataSyncService {
             }
         }
 
+        // ─── 步驟零點五：獲取有庫存的標的清單 (防呆預設 0050, 0056, 00878) ───
+        List<String> distinctTickers = userPortfolioRepository.findDistinctTickers();
+        Set<String> targetTickers = new HashSet<>(distinctTickers);
+        if (targetTickers.isEmpty()) {
+            targetTickers.addAll(Arrays.asList("0050", "0056", "00878"));
+        }
+        System.out.println("[DataSync] 今日同步目標標的清單: " + targetTickers);
+
         // ─── 步驟一：解析 TWSE 原始資料，過濾掉無效資料 ───────────────────
         // 使用 Map<ticker, closingPrice> 儲存所有有效的今日資料
         Map<String, TwseValidData> validDataMap = new LinkedHashMap<>();
         for (TwseStockDayDTO dto : dtoList) {
             String ticker = dto.getCode();
+            if (ticker == null || !targetTickers.contains(ticker)) {
+                continue; // 僅同步有庫存或預設指標性標的，大幅減輕資料庫與記憶體負擔
+            }
             String closingPriceStr = dto.getClosingPrice();
 
-            if (ticker == null || closingPriceStr == null || closingPriceStr.trim().isEmpty()) {
+            if (closingPriceStr == null || closingPriceStr.trim().isEmpty()) {
                 continue;
             }
             try {

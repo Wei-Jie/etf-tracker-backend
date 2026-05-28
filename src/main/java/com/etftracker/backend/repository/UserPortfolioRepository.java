@@ -43,4 +43,10 @@ public interface UserPortfolioRepository extends JpaRepository<UserPortfolio, Lo
      */
     @org.springframework.data.jpa.repository.Query("SELECT DISTINCT p.owner FROM UserPortfolio p")
     List<String> findDistinctOwners();
+
+    /**
+     * 查詢所有在投資組合中被持有的不重複資產 Ticker 清單
+     */
+    @org.springframework.data.jpa.repository.Query("SELECT DISTINCT p.asset.ticker FROM UserPortfolio p")
+    List<String> findDistinctTickers();
 }
