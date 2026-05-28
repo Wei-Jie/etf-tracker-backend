@@ -35,7 +35,7 @@ public class DailyBriefing {
     public DailyBriefing(LocalDate briefingDate, String contentHtml) {
         this.briefingDate = briefingDate;
         this.contentHtml = contentHtml;
-        this.createdAt = LocalDateTime.now();
+        this.createdAt = LocalDateTime.now(java.time.ZoneId.of("Asia/Taipei"));
     }
 
     // Getters and Setters

@@ -49,6 +49,7 @@ public class BriefingService {
 
         // 3. 只有在 API Key 配置好且正常產出時，才將產出寫入快取資料庫
         if (briefHtml != null && !briefHtml.contains("未配置 GEMINI_API_KEY") && !briefHtml.contains("召喚 AI 失敗")) {
+            briefHtml = appendTimestamp(briefHtml);
             DailyBriefing briefing = new DailyBriefing(today, briefHtml);
             dailyBriefingRepository.save(briefing);
             System.out.println("[Briefing] 今日 AI 晨報已成功寫入 Supabase 資料庫快取！");
@@ -80,11 +81,27 @@ public class BriefingService {
 
         // 3. 寫入新快取
         if (briefHtml != null && !briefHtml.contains("未配置 GEMINI_API_KEY") && !briefHtml.contains("召喚 AI 失敗")) {
+            briefHtml = appendTimestamp(briefHtml);
             DailyBriefing briefing = new DailyBriefing(today, briefHtml);
             dailyBriefingRepository.save(briefing);
             System.out.println("[Briefing] 手動更新之 AI 晨報已寫入資料庫快取！");
         }
 
         return briefHtml;
+    }
+
+    /**
+     * 輔助方法：將台灣時區的精準產生時間拼接到 HTML 內容底部
+     */
+    private String appendTimestamp(String briefHtml) {
+        if (briefHtml == null || briefHtml.isEmpty()) {
+            return briefHtml;
+        }
+        String timestampStr = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Taipei"))
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String styledTimestamp = String.format(
+                "<div class='brief-timestamp' style='text-align: right; font-size: 0.85rem; color: #7a6e67; margin-top: 20px; font-style: italic; border-top: 1px dashed rgba(178, 123, 94, 0.2); padding-top: 10px;'>" +
+                "💡 本期 AI 財經要聞產生時間：%s (台灣時間)</div>", timestampStr);
+        return briefHtml + styledTimestamp;
     }
 }

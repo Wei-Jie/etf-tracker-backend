@@ -97,7 +97,8 @@ public class ReportService {
      * 為確保在各大郵件客戶端 (Gmail, Outlook, Yahoo) 完美渲染，採用經典的 table 表格佈局
      */
     private String buildHtmlReport(String memberName, PortfolioSummaryDTO summary) {
-        String nowStr = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"));
+        String nowStr = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Taipei"))
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")) + " (台灣時間)";
         
         // 格式化總額度
         String investedStr = CURRENCY_FORMAT.format(summary.getTotalInvested());
