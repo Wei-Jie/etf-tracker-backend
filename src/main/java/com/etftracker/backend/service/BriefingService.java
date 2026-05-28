@@ -33,7 +33,7 @@ public class BriefingService {
      */
     @Transactional
     public String getTodayBriefing() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Taipei"));
         Optional<DailyBriefing> cache = dailyBriefingRepository.findByBriefingDate(today);
 
         // 1. 若資料庫今天已經有生成過快取，則直接以微秒級速度回傳，守護 API 額度與效能！
@@ -64,7 +64,7 @@ public class BriefingService {
      */
     @Transactional
     public String forceRefreshTodayBriefing() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Taipei"));
         Optional<DailyBriefing> cache = dailyBriefingRepository.findByBriefingDate(today);
 
         // 1. 先把今日已存在的快取徹底刪除
