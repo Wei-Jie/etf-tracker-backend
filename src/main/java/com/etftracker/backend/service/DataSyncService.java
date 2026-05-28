@@ -37,7 +37,28 @@ public class DataSyncService {
     @Transactional
     public void syncDailyClosingPrices() {
         List<TwseStockDayDTO> dtoList = twseApiService.fetchDailyClosingPrices();
-        LocalDate today = LocalDate.now();
+        
+        // ─── 步驟零：精準取得證交所當前數據的真實交易日期 (以 0050 最新成交日為真理之源) ───
+        LocalDate todayZone = LocalDate.now(java.time.ZoneId.of("Asia/Taipei"));
+        String currentYearMonth = todayZone.format(DateTimeFormatter.ofPattern("yyyyMM"));
+        List<TwseHistoryDayDTO> historyList = twseApiService.fetchMonthlyHistory("0050", currentYearMonth);
+        
+        LocalDate actualTradeDate = todayZone; // 預設 Fallback
+        if (historyList != null && !historyList.isEmpty()) {
+            TwseHistoryDayDTO lastRecord = historyList.get(historyList.size() - 1);
+            try {
+                String[] parts = lastRecord.dateRoc().split("/");
+                if (parts.length == 3) {
+                    int year = Integer.parseInt(parts[0]) + 1911;
+                    int month = Integer.parseInt(parts[1]);
+                    int day = Integer.parseInt(parts[2]);
+                    actualTradeDate = LocalDate.of(year, month, day);
+                    System.out.println("[DataSync] 偵測到證交所最新收盤數據之真實交易日期為: " + actualTradeDate);
+                }
+            } catch (Exception e) {
+                System.err.println("[DataSync] 解析 0050 最後交易日失敗，採用系統時間: " + e.getMessage());
+            }
+        }
 
         // ─── 步驟一：解析 TWSE 原始資料，過濾掉無效資料 ───────────────────
         // 使用 Map<ticker, closingPrice> 儲存所有有效的今日資料
@@ -88,7 +109,7 @@ public class DataSyncService {
         // ─── 步驟四：一次查詢今天已存在的 PriceHistory，建立快取 Set ────────
         // 避免重複寫入同一天的收盤價
         Set<Long> existingPriceAssetIds = priceHistoryRepository
-                .findAllByTradeDate(today)
+                .findAllByTradeDate(actualTradeDate)
                 .stream()
                 .map(ph -> ph.getAsset().getAssetId())
                 .collect(Collectors.toSet());
@@ -102,7 +123,7 @@ public class DataSyncService {
             }
             PriceHistory history = new PriceHistory();
             history.setAsset(asset);
-            history.setTradeDate(today);
+            history.setTradeDate(actualTradeDate);
             history.setClosingPrice(data.closingPrice());
             newPriceHistories.add(history);
         }
@@ -145,12 +166,11 @@ public class DataSyncService {
                 continue;
             }
 
-            // 取得該標的已存在的所有日期，避免重複寫入
-            Set<LocalDate> existingDates = priceHistoryRepository
+            // 取得該標的已存在的所有 PriceHistory，建立 Map 方便直接進行 Upsert 覆蓋更新
+            Map<LocalDate, PriceHistory> existingPriceMap = priceHistoryRepository
                     .findAllByAsset_Ticker(ticker)
                     .stream()
-                    .map(PriceHistory::getTradeDate)
-                    .collect(Collectors.toSet());
+                    .collect(Collectors.toMap(PriceHistory::getTradeDate, ph -> ph, (ph1, ph2) -> ph1));
 
             YearMonth current = start;
             while (!current.isAfter(end)) {
@@ -168,21 +188,29 @@ public class DataSyncService {
                         int day = Integer.parseInt(parts[2]);
                         LocalDate tradeDate = LocalDate.of(year, month, day);
 
-                        if (existingDates.contains(tradeDate)) {
-                            totalSkipped++;
-                            continue;
-                        }
-
                         String priceStr = dto.closingPrice().replace(",", "").trim();
                         if (priceStr.isEmpty() || priceStr.equals("--")) continue;
                         BigDecimal price = new BigDecimal(priceStr);
 
-                        PriceHistory ph = new PriceHistory();
-                        ph.setAsset(asset);
-                        ph.setTradeDate(tradeDate);
-                        ph.setClosingPrice(price);
-                        toInsert.add(ph);
-                        existingDates.add(tradeDate);
+                        if (existingPriceMap.containsKey(tradeDate)) {
+                            PriceHistory existingPh = existingPriceMap.get(tradeDate);
+                            // 若偵測到收盤價不同（例如之前寫入了重複或錯誤的股價），則進行覆蓋更新自癒
+                            if (existingPh.getClosingPrice().compareTo(price) != 0) {
+                                existingPh.setClosingPrice(price);
+                                toInsert.add(existingPh);
+                                System.out.printf("[DataSync] 偵測到 %s %s 價格變更 (舊: %s, 新: %s)，將進行覆蓋更新。%n", 
+                                        ticker, tradeDate, existingPh.getClosingPrice(), price);
+                            } else {
+                                totalSkipped++;
+                            }
+                        } else {
+                            PriceHistory ph = new PriceHistory();
+                            ph.setAsset(asset);
+                            ph.setTradeDate(tradeDate);
+                            ph.setClosingPrice(price);
+                            toInsert.add(ph);
+                            existingPriceMap.put(tradeDate, ph);
+                        }
 
                     } catch (Exception e) {
                         // 略過個別解析失敗的列
@@ -192,7 +220,7 @@ public class DataSyncService {
                 if (!toInsert.isEmpty()) {
                     priceHistoryRepository.saveAll(toInsert);
                     totalInserted += toInsert.size();
-                    System.out.printf("[DataSync] %s %s：寫入 %d 筆%n", ticker, yearMonth, toInsert.size());
+                    System.out.printf("[DataSync] %s %s：寫入/更新 %d 筆%n", ticker, yearMonth, toInsert.size());
                 }
 
                 current = current.plusMonths(1);
@@ -203,7 +231,7 @@ public class DataSyncService {
         }
 
         String summary = String.format(
-                "歷史資料同步完成！標的：%s｜新增：%d 筆｜略過重複：%d 筆%s",
+                "歷史資料同步完成！標的：%s｜新增/更新：%d 筆｜略過重複：%d 筆%s",
                 String.join(", ", tickers),
                 totalInserted,
                 totalSkipped,
