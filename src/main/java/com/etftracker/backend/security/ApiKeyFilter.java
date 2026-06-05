@@ -29,9 +29,10 @@ public class ApiKeyFilter extends OncePerRequestFilter {
             return;
         }
 
-        // 放行輕量級免驗證端點：健康檢查 (GET /health) 與 今日 AI 晨報 (GET /news/briefing)
+        // 放行輕量級免驗證端點：健康檢查 (GET/HEAD /health) 與 今日 AI 晨報 (GET/HEAD /news/briefing)
         String path = request.getRequestURI();
-        if ("GET".equalsIgnoreCase(request.getMethod())) {
+        String method = request.getMethod();
+        if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)) {
             if (path.endsWith("/api/v1/health") || path.endsWith("/api/v1/health/")
                 || path.endsWith("/api/v1/news/briefing") || path.endsWith("/api/v1/news/briefing/")) {
                 filterChain.doFilter(request, response);
