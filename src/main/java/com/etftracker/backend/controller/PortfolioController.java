@@ -103,4 +103,36 @@ public class PortfolioController {
             return ResponseEntity.internalServerError().body("查詢人員清單時發生錯誤：" + e.getMessage());
         }
     }
+
+    /**
+     * 執行賣出持倉交易
+     *
+     * @param request 包含 ticker、sellDate (使用 buyDate 承載)、quantity、unitPrice 的請求 DTO
+     * @return 200 OK (含有已實現損益記錄的實體) 或 400 (參數錯誤)
+     */
+    @PostMapping("/sell")
+    public ResponseEntity<?> sellHolding(@jakarta.validation.Valid @RequestBody AddHoldingRequestDTO request) {
+        try {
+            com.etftracker.backend.model.RealizedPnL result = portfolioService.sellHolding(request);
+            return ResponseEntity.ok(result);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("執行賣出持倉時發生錯誤：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 查詢所有歷史已實現損益記錄
+     * GET /api/v1/portfolio/realized
+     */
+    @GetMapping("/realized")
+    public ResponseEntity<?> getRealizedHistory(@RequestParam(value = "owner", defaultValue = "自己") String owner) {
+        try {
+            List<com.etftracker.backend.model.RealizedPnL> history = portfolioService.getRealizedHistory(owner);
+            return ResponseEntity.ok(history);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("查詢歷史已實現損益時發生錯誤：" + e.getMessage());
+        }
+    }
 }

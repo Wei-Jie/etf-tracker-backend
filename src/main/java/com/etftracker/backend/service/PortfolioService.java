@@ -5,9 +5,11 @@ import com.etftracker.backend.dto.HoldingRecordDTO;
 import com.etftracker.backend.dto.PortfolioSummaryDTO;
 import com.etftracker.backend.dto.PortfolioSummaryDTO.PortfolioHoldingDTO;
 import com.etftracker.backend.model.AssetInfo;
+import com.etftracker.backend.model.RealizedPnL;
 import com.etftracker.backend.model.UserPortfolio;
 import com.etftracker.backend.repository.AssetInfoRepository;
 import com.etftracker.backend.repository.PriceHistoryRepository;
+import com.etftracker.backend.repository.RealizedPnLRepository;
 import com.etftracker.backend.repository.UserPortfolioRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -34,6 +36,9 @@ public class PortfolioService {
 
     @Autowired
     private AssetInfoRepository assetInfoRepository;
+
+    @Autowired
+    private RealizedPnLRepository realizedPnLRepository;
 
     /**
      * 查詢所有交易明細（raw records），依資產代號與買入日期排序
@@ -100,6 +105,100 @@ public class PortfolioService {
     }
 
     /**
+     * 執行賣出持倉交易
+     * 採用先進先出法 (FIFO) 扣減庫存，並計算該筆交易實現的損益寫入 REALIZED_PNL
+     *
+     * @param request 包含 ticker、sellDate (使用 buyDate 承載)、quantity、unitPrice、owner 的請求 DTO
+     * @return 已實現損益記錄的實體
+     */
+    @Transactional
+    public RealizedPnL sellHolding(AddHoldingRequestDTO request) {
+        String ticker = request.getTicker().trim().toUpperCase();
+        String owner = request.getOwner() != null ? request.getOwner().trim() : "自己";
+
+        // 1. 撈取該成員在此標的所有買入紀錄 (依買入日期由舊到新排序，以便進行 FIFO)
+        List<UserPortfolio> holdings = portfolioRepository.findAllByOwnerAndAsset_TickerOrderByBuyDateAsc(owner, ticker);
+        if (holdings.isEmpty()) {
+            throw new IllegalArgumentException("您目前未持有標的 \"" + ticker + "\" 的庫存，無法進行賣出。");
+        }
+
+        // 2. 防呆：驗證賣出股數是否大於當前總持股數
+        BigDecimal totalSharesAvailable = holdings.stream()
+                .map(UserPortfolio::getQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        if (totalSharesAvailable.compareTo(request.getQuantity()) < 0) {
+            throw new IllegalArgumentException(String.format(
+                    "賣出數量 (%s) 大於目前所持有的庫存數量 (%s)，無法執行交易！",
+                    request.getQuantity(), totalSharesAvailable));
+        }
+
+        // 3. 計算當前持有此標的的加權平均成本
+        BigDecimal totalCostBasis = holdings.stream()
+                .map(h -> h.getQuantity().multiply(h.getUnitPrice()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal averageBuyPrice = totalCostBasis.divide(totalSharesAvailable, 4, RoundingMode.HALF_UP);
+
+        // 4. 計算此筆賣出實現的損益： (賣出單價 - 平均買入均價) * 賣出股數
+        BigDecimal realizedPnLValue = request.getQuantity()
+                .multiply(request.getUnitPrice().subtract(averageBuyPrice))
+                .setScale(2, RoundingMode.HALF_UP);
+
+        // 5. 寫入已實現損益紀錄表
+        RealizedPnL realizedRecord = new RealizedPnL();
+        realizedRecord.setTicker(ticker);
+        realizedRecord.setAssetName(holdings.get(0).getAsset().getName());
+        realizedRecord.setSellDate(request.getBuyDate()); // 借用 buyDate 當作賣出日期
+        realizedRecord.setQuantity(request.getQuantity());
+        realizedRecord.setSellPrice(request.getUnitPrice());
+        realizedRecord.setAverageBuyPrice(averageBuyPrice);
+        realizedRecord.setRealizedPnL(realizedPnLValue);
+        realizedRecord.setOwner(owner);
+        RealizedPnL savedRecord = realizedPnLRepository.save(realizedRecord);
+
+        // 6. 執行先進先出 (FIFO) 扣減庫存邏輯
+        BigDecimal remainingToSell = request.getQuantity();
+        List<UserPortfolio> toSave = new ArrayList<>();
+        List<UserPortfolio> toDelete = new ArrayList<>();
+
+        for (UserPortfolio h : holdings) {
+            if (remainingToSell.compareTo(BigDecimal.ZERO) <= 0) {
+                break;
+            }
+            BigDecimal qty = h.getQuantity();
+            if (qty.compareTo(remainingToSell) <= 0) {
+                // 此筆買入數量不夠扣或剛好，整筆刪除
+                remainingToSell = remainingToSell.subtract(qty);
+                toDelete.add(h);
+            } else {
+                // 此筆夠扣，扣減部分股數
+                h.setQuantity(qty.subtract(remainingToSell));
+                toSave.add(h);
+                remainingToSell = BigDecimal.ZERO;
+            }
+        }
+
+        if (!toSave.isEmpty()) {
+            portfolioRepository.saveAll(toSave);
+        }
+        if (!toDelete.isEmpty()) {
+            portfolioRepository.deleteAll(toDelete);
+        }
+
+        System.out.printf("[Portfolio] 成員【%s】已完成 %s 賣出自癒扣減。賣出 %s 股，單價 %s，均價 %s，已實現損益: NT$ %s%n",
+                owner, ticker, request.getQuantity(), request.getUnitPrice(), averageBuyPrice, realizedPnLValue);
+
+        return savedRecord;
+    }
+
+    /**
+     * 查詢指定成員的所有歷史賣出已實現損益明細
+     */
+    public List<RealizedPnL> getRealizedHistory(String owner) {
+        return realizedPnLRepository.findAllByOwnerOrderBySellDateDesc(owner);
+    }
+
+    /**
      * 刪除指定 ID 的持倉交易紀錄
      *
      * @param portfolioId 要刪除的持倉紀錄 ID
@@ -124,13 +223,16 @@ public class PortfolioService {
         List<UserPortfolio> allHoldings = portfolioRepository.findAllByOwnerOrderByAsset_TickerAscBuyDateAsc(owner);
 
         if (allHoldings.isEmpty()) {
-            return new PortfolioSummaryDTO(
+            BigDecimal totalRealizedPnL = realizedPnLRepository.sumRealizedPnLByOwner(owner);
+            PortfolioSummaryDTO summary = new PortfolioSummaryDTO(
                     BigDecimal.ZERO,
                     BigDecimal.ZERO,
                     BigDecimal.ZERO,
                     BigDecimal.ZERO,
                     Collections.emptyList()
             );
+            summary.setTotalRealizedPnL(totalRealizedPnL != null ? totalRealizedPnL : BigDecimal.ZERO);
+            return summary;
         }
 
         // 2. 依 ticker 分組統計
@@ -211,13 +313,16 @@ public class PortfolioService {
             totalUnrealizedReturnRate = totalUnrealizedPnL.divide(totalCostBasis, 4, RoundingMode.HALF_UP);
         }
 
-        return new PortfolioSummaryDTO(
+        BigDecimal totalRealizedPnL = realizedPnLRepository.sumRealizedPnLByOwner(owner);
+        PortfolioSummaryDTO summary = new PortfolioSummaryDTO(
                 totalCostBasis,
                 totalMarketValue.setScale(2, RoundingMode.HALF_UP),
                 totalUnrealizedPnL,
                 totalUnrealizedReturnRate,
                 holdingDTOs
         );
+        summary.setTotalRealizedPnL(totalRealizedPnL != null ? totalRealizedPnL : BigDecimal.ZERO);
+        return summary;
     }
 
     /**

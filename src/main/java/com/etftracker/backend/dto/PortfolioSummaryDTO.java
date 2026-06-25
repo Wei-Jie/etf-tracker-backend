@@ -31,6 +31,20 @@ public class PortfolioSummaryDTO {
     /** 各資產持倉明細列表 */
     private List<PortfolioHoldingDTO> holdings;
 
+    /** 累計已實現損益（賣出獲利/虧損） */
+    private BigDecimal totalRealizedPnL = BigDecimal.ZERO;
+
+    public PortfolioSummaryDTO(BigDecimal totalInvested, BigDecimal totalMarketValue,
+                               BigDecimal unrealizedPnL, BigDecimal unrealizedReturnRate,
+                               List<PortfolioHoldingDTO> holdings) {
+        this.totalInvested = totalInvested;
+        this.totalMarketValue = totalMarketValue;
+        this.unrealizedPnL = unrealizedPnL;
+        this.unrealizedReturnRate = unrealizedReturnRate;
+        this.holdings = holdings;
+        this.totalRealizedPnL = BigDecimal.ZERO;
+    }
+
     /**
      * 單一資產的持倉明細 DTO（巢狀類別）
      */
