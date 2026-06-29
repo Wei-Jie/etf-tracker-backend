@@ -54,7 +54,8 @@ public class DailyDataSyncScheduler {
      * 觸發時間：每週一至週五早晨 08:30 (台灣時間 Asia/Taipei，開盤前半小時)
      * 自動爬取 Yahoo 股市要聞、呼叫 Gemini 3.5 Flash 生成摘要快取，並透過 Gmail 寄送 HTML 精美晨報。
      */
-    @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Taipei")
+    // 依使用者要求，暫時關閉每日早晨 AI 財經晨報自動發送排程
+    // @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Taipei")
     public void autoGenerateAndSendDailyBriefing() {
         System.out.println("[Scheduler] 開始執行今日 AI 財經要聞晨報排程，當前時間: " + LocalDateTime.now());
         sendDailyBriefingTo(receiverEmail);
@@ -67,6 +68,8 @@ public class DailyDataSyncScheduler {
      */
     public void sendDailyBriefingTo(String targetEmail) {
         System.out.println("[Scheduler] 觸發 AI 財經要聞晨報發送，目標信箱: " + targetEmail);
+        System.out.println("[Scheduler] 電子報發送功能目前已關閉，跳過寄信邏輯。");
+        /* 暫時註解寄信核心代碼
         try {
             // 1. 自動觸發今日新聞爬取、Gemini AI 3.5 摘要與資料庫快取
             String briefHtml = briefingService.getTodayBriefing();
@@ -101,5 +104,6 @@ public class DailyDataSyncScheduler {
             e.printStackTrace();
             throw new RuntimeException("發送電子晨報郵件失敗，原因: " + e.getMessage());
         }
+        */
     }
 }
