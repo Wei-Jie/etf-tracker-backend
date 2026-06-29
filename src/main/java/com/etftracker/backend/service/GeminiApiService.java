@@ -20,7 +20,7 @@ public class GeminiApiService {
     @Value("${app.gemini-api-key:}")
     private String geminiApiKey;
 
-    @Value("${app.gemini-model:gemini-1.5-flash}")
+    @Value("${app.gemini-model:gemini-3.5-flash}")
     private String geminiModel;
 
     public GeminiApiService() {
@@ -43,10 +43,10 @@ public class GeminiApiService {
         try {
             return callGeminiModel(rawNews, geminiModel);
         } catch (Exception e) {
-            System.err.printf("[GeminiAPI] 使用選定模型 %s 呼叫失敗: %s。嘗試自動 Fallback 至穩定版 gemini-1.5-flash%n", geminiModel, e.getMessage());
+            System.err.printf("[GeminiAPI] 使用選定模型 %s 呼叫失敗: %s。嘗試自動 Fallback 至穩定版 gemini-2.0-flash%n", geminiModel, e.getMessage());
             try {
                 // 自動 Fallback 確保系統 100% 正常
-                return callGeminiModel(rawNews, "gemini-1.5-flash");
+                return callGeminiModel(rawNews, "gemini-2.0-flash");
             } catch (Exception ex) {
                 ex.printStackTrace();
                 return "<div class='alert alert-error'>⚠️ 召喚 AI 財經助理失敗，請確認您的 <code>GEMINI_API_KEY</code> 是否正確或是否已超出限流額度。</div>";
