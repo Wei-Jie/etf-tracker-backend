@@ -57,7 +57,7 @@ public class GeminiApiService {
     // 核心的 API POST 呼叫方法
     @SuppressWarnings("unchecked")
     private String callGeminiModel(String rawNews, String model) {
-        String url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + geminiApiKey;
+        String url = "https://generativelanguage.googleapis.com/v1/models/" + model + ":generateContent?key=" + geminiApiKey;
 
         // 1. 精心調教的理財專屬 Prompt
         String prompt = "請以「台灣頂尖理財專家與資深財經分析師」的語氣，為我從以下最新新聞中精準整理出今天『理財必讀的 3 大黃金焦點』。\n"
