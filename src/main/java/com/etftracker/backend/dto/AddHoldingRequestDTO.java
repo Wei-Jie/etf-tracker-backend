@@ -40,4 +40,7 @@ public class AddHoldingRequestDTO {
     /** 持倉擁有人（例如 先生、太太），預設為 自己 */
     @NotBlank(message = "持倉擁有人不能為空")
     private String owner = "自己";
+
+    /** 手續費，選填，若為空則由後端自動估算 */
+    private BigDecimal fee;
 }

@@ -50,5 +50,8 @@ public class UserPortfolio {
     @NotNull(message = "交易單價不能為空")
     @DecimalMin(value = "0.01", message = "交易單價必須大於 0")
     private BigDecimal unitPrice;
+
+    @Column(name = "fee", precision = 10, scale = 2)
+    private BigDecimal fee;
 }
 

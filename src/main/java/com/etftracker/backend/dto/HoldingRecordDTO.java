@@ -39,4 +39,7 @@ public class HoldingRecordDTO {
 
     /** 持倉擁有人 */
     private String owner;
+
+    /** 交易手續費 */
+    private BigDecimal fee;
 }

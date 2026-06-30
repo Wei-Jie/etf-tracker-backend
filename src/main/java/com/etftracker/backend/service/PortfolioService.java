@@ -59,7 +59,8 @@ public class PortfolioService {
                             p.getQuantity(),
                             p.getUnitPrice(),
                             totalCost,
-                            p.getOwner()
+                            p.getOwner(),
+                            p.getFee() != null ? p.getFee() : BigDecimal.ZERO
                     );
                 })
                 .collect(Collectors.toList());
@@ -68,7 +69,7 @@ public class PortfolioService {
     /**
      * 新增一筆買入持倉紀錄
      *
-     * @param request 包含 ticker、buyDate、quantity、unitPrice 的請求 DTO
+     * @param request 包含 ticker、buyDate、quantity、unitPrice、fee 的請求 DTO
      * @return 新增成功後的交易明細 DTO
      * @throws IllegalArgumentException 若找不到對應的資產代號
      */
@@ -79,12 +80,28 @@ public class PortfolioService {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "找不到標的代號 \"" + request.getTicker() + "\"，請確認輸入的代號是否正確。"));
 
+        // 估算或套用手續費
+        BigDecimal fee = request.getFee();
+        if (fee == null) {
+            BigDecimal volume = request.getQuantity().multiply(request.getUnitPrice());
+            BigDecimal calculatedFee = volume.multiply(new BigDecimal("0.001425"))
+                    .multiply(new BigDecimal("0.6")) // 富邦電子單 6 折
+                    .setScale(0, RoundingMode.HALF_UP);
+            boolean isOddShare = request.getQuantity().remainder(new BigDecimal("1000")).compareTo(BigDecimal.ZERO) != 0;
+            if (isOddShare) {
+                fee = calculatedFee.compareTo(BigDecimal.ONE) < 0 ? BigDecimal.ONE : calculatedFee;
+            } else {
+                fee = calculatedFee.compareTo(new BigDecimal("20")) < 0 ? new BigDecimal("20") : calculatedFee;
+            }
+        }
+
         // 建立新紀錄
         UserPortfolio newRecord = new UserPortfolio();
         newRecord.setAsset(asset);
         newRecord.setBuyDate(request.getBuyDate());
         newRecord.setQuantity(request.getQuantity());
         newRecord.setUnitPrice(request.getUnitPrice());
+        newRecord.setFee(fee);
         newRecord.setOwner(request.getOwner() != null ? request.getOwner().trim() : "自己");
 
         UserPortfolio saved = portfolioRepository.save(newRecord);
@@ -100,7 +117,8 @@ public class PortfolioService {
                 saved.getQuantity(),
                 saved.getUnitPrice(),
                 totalCost,
-                saved.getOwner()
+                saved.getOwner(),
+                saved.getFee()
         );
     }
 
@@ -133,18 +151,37 @@ public class PortfolioService {
                     request.getQuantity(), totalSharesAvailable));
         }
 
-        // 3. 計算當前持有此標的的加權平均成本
+        // 3. 計算當前持有此標的的加權平均成本 (含買入手續費)
         BigDecimal totalCostBasis = holdings.stream()
-                .map(h -> h.getQuantity().multiply(h.getUnitPrice()))
+                .map(h -> h.getQuantity().multiply(h.getUnitPrice()).add(h.getFee() != null ? h.getFee() : BigDecimal.ZERO))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal averageBuyPrice = totalCostBasis.divide(totalSharesAvailable, 4, RoundingMode.HALF_UP);
 
-        // 4. 計算此筆賣出實現的損益： (賣出單價 - 平均買入均價) * 賣出股數
-        BigDecimal realizedPnLValue = request.getQuantity()
-                .multiply(request.getUnitPrice().subtract(averageBuyPrice))
-                .setScale(2, RoundingMode.HALF_UP);
+        // 4. 計算此筆賣出的手續費與證交稅
+        BigDecimal sellFee = request.getFee();
+        BigDecimal sellVolume = request.getQuantity().multiply(request.getUnitPrice());
+        if (sellFee == null) {
+            BigDecimal calculatedFee = sellVolume.multiply(new BigDecimal("0.001425"))
+                    .multiply(new BigDecimal("0.6")) // 富邦電子單 6 折
+                    .setScale(0, RoundingMode.HALF_UP);
+            boolean isOddShare = request.getQuantity().remainder(new BigDecimal("1000")).compareTo(BigDecimal.ZERO) != 0;
+            if (isOddShare) {
+                sellFee = calculatedFee.compareTo(BigDecimal.ONE) < 0 ? BigDecimal.ONE : calculatedFee;
+            } else {
+                sellFee = calculatedFee.compareTo(new BigDecimal("20")) < 0 ? new BigDecimal("20") : calculatedFee;
+            }
+        }
+        
+        // 估算證交稅 (ETF: 0.1%, 股票: 0.3%)
+        BigDecimal taxRate = ticker.startsWith("00") ? new BigDecimal("0.001") : new BigDecimal("0.003");
+        BigDecimal sellTax = sellVolume.multiply(taxRate).setScale(0, RoundingMode.HALF_UP);
 
-        // 5. 寫入已實現損益紀錄表
+        // 5. 計算已實現淨損益 = 賣出淨得 (賣出總額 - 賣出手續費 - 證交稅) - 買入總成本 (股數 * 平均買入均價)
+        BigDecimal costOfSharesSold = request.getQuantity().multiply(averageBuyPrice);
+        BigDecimal netSellValue = sellVolume.subtract(sellFee).subtract(sellTax);
+        BigDecimal realizedPnLValue = netSellValue.subtract(costOfSharesSold).setScale(2, RoundingMode.HALF_UP);
+
+        // 6. 寫入已實現損益紀錄表
         RealizedPnL realizedRecord = new RealizedPnL();
         realizedRecord.setTicker(ticker);
         realizedRecord.setAssetName(holdings.get(0).getAsset().getName());
@@ -153,10 +190,12 @@ public class PortfolioService {
         realizedRecord.setSellPrice(request.getUnitPrice());
         realizedRecord.setAverageBuyPrice(averageBuyPrice);
         realizedRecord.setRealizedPnL(realizedPnLValue);
+        realizedRecord.setFee(sellFee);
+        realizedRecord.setTax(sellTax);
         realizedRecord.setOwner(owner);
         RealizedPnL savedRecord = realizedPnLRepository.save(realizedRecord);
 
-        // 6. 執行先進先出 (FIFO) 扣減庫存邏輯
+        // 7. 執行先進先出 (FIFO) 扣減庫存邏輯
         BigDecimal remainingToSell = request.getQuantity();
         List<UserPortfolio> toSave = new ArrayList<>();
         List<UserPortfolio> toDelete = new ArrayList<>();
@@ -172,6 +211,11 @@ public class PortfolioService {
                 toDelete.add(h);
             } else {
                 // 此筆夠扣，扣減部分股數
+                // 注意：扣減股數時，手續費亦等比例扣減
+                BigDecimal ratio = qty.subtract(remainingToSell).divide(qty, 4, RoundingMode.HALF_UP);
+                if (h.getFee() != null) {
+                    h.setFee(h.getFee().multiply(ratio).setScale(2, RoundingMode.HALF_UP));
+                }
                 h.setQuantity(qty.subtract(remainingToSell));
                 toSave.add(h);
                 remainingToSell = BigDecimal.ZERO;
@@ -185,10 +229,65 @@ public class PortfolioService {
             portfolioRepository.deleteAll(toDelete);
         }
 
-        System.out.printf("[Portfolio] 成員【%s】已完成 %s 賣出自癒扣減。賣出 %s 股，單價 %s，均價 %s，已實現損益: NT$ %s%n",
-                owner, ticker, request.getQuantity(), request.getUnitPrice(), averageBuyPrice, realizedPnLValue);
+        System.out.printf("[Portfolio] 成員【%s】已完成 %s 賣出自癒扣減。賣出 %s 股，單價 %s，均價 %s，手續費 %s，稅金 %s，已實現淨損益: NT$ %s%n",
+                owner, ticker, request.getQuantity(), request.getUnitPrice(), averageBuyPrice, sellFee, sellTax, realizedPnLValue);
 
         return savedRecord;
+    }
+
+    /**
+     * 編輯已存持倉交易明細
+     *
+     * @param portfolioId 持倉紀錄 ID
+     * @param request 包含 ticker, buyDate, quantity, unitPrice, fee, owner 的請求 DTO
+     * @return 編輯成功後的 HoldingRecordDTO
+     */
+    @Transactional
+    public HoldingRecordDTO updateHolding(Long portfolioId, AddHoldingRequestDTO request) {
+        UserPortfolio record = portfolioRepository.findById(portfolioId)
+                .orElseThrow(() -> new IllegalArgumentException("找不到 ID 為 " + portfolioId + " 的持倉紀錄。"));
+
+        // 驗證標的是否存在
+        AssetInfo asset = assetInfoRepository.findByTicker(request.getTicker().trim().toUpperCase())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "找不到標的代號 \"" + request.getTicker() + "\"，請確認代號是否正確。"));
+
+        // 估算或套用手續費
+        BigDecimal fee = request.getFee();
+        if (fee == null) {
+            BigDecimal volume = request.getQuantity().multiply(request.getUnitPrice());
+            BigDecimal calculatedFee = volume.multiply(new BigDecimal("0.001425"))
+                    .multiply(new BigDecimal("0.6"))
+                    .setScale(0, RoundingMode.HALF_UP);
+            boolean isOddShare = request.getQuantity().remainder(new BigDecimal("1000")).compareTo(BigDecimal.ZERO) != 0;
+            if (isOddShare) {
+                fee = calculatedFee.compareTo(BigDecimal.ONE) < 0 ? BigDecimal.ONE : calculatedFee;
+            } else {
+                fee = calculatedFee.compareTo(new BigDecimal("20")) < 0 ? new BigDecimal("20") : calculatedFee;
+            }
+        }
+
+        record.setAsset(asset);
+        record.setBuyDate(request.getBuyDate());
+        record.setQuantity(request.getQuantity());
+        record.setUnitPrice(request.getUnitPrice());
+        record.setFee(fee);
+        record.setOwner(request.getOwner() != null ? request.getOwner().trim() : "自己");
+
+        UserPortfolio saved = portfolioRepository.save(record);
+        BigDecimal totalCost = saved.getQuantity().multiply(saved.getUnitPrice()).setScale(2, RoundingMode.HALF_UP);
+
+        return new HoldingRecordDTO(
+                saved.getPortfolioId(),
+                saved.getAsset().getTicker(),
+                saved.getAsset().getName(),
+                saved.getBuyDate(),
+                saved.getQuantity(),
+                saved.getUnitPrice(),
+                totalCost,
+                saved.getOwner(),
+                saved.getFee()
+        );
     }
 
     /**
@@ -248,15 +347,16 @@ public class PortfolioService {
             List<UserPortfolio> positions = entry.getValue();
             String assetName = positions.get(0).getAsset().getName();
 
-            // 計算該資產的總持股數與加權平均成本
+            // 計算該資產的總持股數與加權平均成本 (含買入手續費)
             BigDecimal totalShares = BigDecimal.ZERO;
             BigDecimal totalCost = BigDecimal.ZERO;
 
             for (UserPortfolio pos : positions) {
                 BigDecimal qty = pos.getQuantity();
                 BigDecimal price = pos.getUnitPrice();
+                BigDecimal posFee = pos.getFee() != null ? pos.getFee() : BigDecimal.ZERO;
                 totalShares = totalShares.add(qty);
-                totalCost = totalCost.add(qty.multiply(price));
+                totalCost = totalCost.add(qty.multiply(price).add(posFee));
             }
 
             BigDecimal averageCost = BigDecimal.ZERO;

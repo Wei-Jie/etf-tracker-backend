@@ -135,4 +135,22 @@ public class PortfolioController {
             return ResponseEntity.internalServerError().body("查詢歷史已實現損益時發生錯誤：" + e.getMessage());
         }
     }
+
+    /**
+     * 編輯已存持倉交易明細
+     * PUT /api/v1/portfolio/holdings/{portfolioId}
+     */
+    @PutMapping("/holdings/{portfolioId}")
+    public ResponseEntity<?> updateHolding(
+            @PathVariable Long portfolioId,
+            @Valid @RequestBody AddHoldingRequestDTO request) {
+        try {
+            HoldingRecordDTO result = portfolioService.updateHolding(portfolioId, request);
+            return ResponseEntity.ok(result);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("編輯持倉紀錄時發生錯誤：" + e.getMessage());
+        }
+    }
 }

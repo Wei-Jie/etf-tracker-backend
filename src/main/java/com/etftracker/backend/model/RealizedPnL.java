@@ -49,6 +49,12 @@ public class RealizedPnL {
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal realizedPnL; // (sellPrice - averageBuyPrice) * quantity
 
+    @Column(name = "fee", precision = 10, scale = 2)
+    private BigDecimal fee;
+
+    @Column(name = "tax", precision = 10, scale = 2)
+    private BigDecimal tax;
+
     @Column(nullable = false)
     private String owner = "自己";
 }
