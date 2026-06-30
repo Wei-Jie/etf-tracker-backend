@@ -99,15 +99,15 @@ public class JobController {
     @GetMapping("/check-prices")
     public ResponseEntity<List<Map<String, Object>>> checkPrices() {
         try {
-            List<UserPortfolio> list = portfolioRepository.findAll();
+            LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Taipei"));
+            List<PriceHistory> list = priceHistoryRepository.findAllByTradeDate(today);
             List<Map<String, Object>> result = new ArrayList<>();
-            for (UserPortfolio p : list) {
+            for (PriceHistory ph : list) {
                 Map<String, Object> map = new HashMap<>();
-                map.put("portfolioId", p.getPortfolioId());
-                map.put("ticker", p.getAsset().getTicker());
-                map.put("quantity", p.getQuantity());
-                map.put("unitPrice", p.getUnitPrice());
-                map.put("fee", p.getFee());
+                map.put("ticker", ph.getAsset().getTicker());
+                map.put("name", ph.getAsset().getName());
+                map.put("date", ph.getTradeDate().toString());
+                map.put("price", ph.getClosingPrice());
                 result.add(map);
             }
             return ResponseEntity.ok(result);
