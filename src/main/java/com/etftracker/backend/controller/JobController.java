@@ -2,10 +2,15 @@ package com.etftracker.backend.controller;
 
 import com.etftracker.backend.service.DataSyncService;
 import com.etftracker.backend.service.ReportService;
+import com.etftracker.backend.repository.PriceHistoryRepository;
+import com.etftracker.backend.model.PriceHistory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 資料同步與排程工作 Controller
@@ -17,10 +22,14 @@ public class JobController {
 
     private final DataSyncService dataSyncService;
     private final ReportService reportService;
+    private final PriceHistoryRepository priceHistoryRepository;
 
-    public JobController(DataSyncService dataSyncService, ReportService reportService) {
+    public JobController(DataSyncService dataSyncService, 
+                         ReportService reportService,
+                         PriceHistoryRepository priceHistoryRepository) {
         this.dataSyncService = dataSyncService;
         this.reportService = reportService;
+        this.priceHistoryRepository = priceHistoryRepository;
     }
 
     /**
@@ -74,6 +83,31 @@ public class JobController {
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.internalServerError().body("定期報表發送失敗：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 獲取今日所有同步的股價資料 (輔助診斷用)
+     * GET /api/v1/jobs/check-prices
+     */
+    @GetMapping("/check-prices")
+    public ResponseEntity<List<Map<String, Object>>> checkPrices() {
+        try {
+            LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Taipei"));
+            List<PriceHistory> list = priceHistoryRepository.findAllByTradeDate(today);
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (PriceHistory ph : list) {
+                Map<String, Object> map = new HashMap<>();
+                map.put("ticker", ph.getAsset().getTicker());
+                map.put("name", ph.getAsset().getName());
+                map.put("date", ph.getTradeDate().toString());
+                map.put("price", ph.getClosingPrice());
+                result.add(map);
+            }
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
         }
     }
 }
