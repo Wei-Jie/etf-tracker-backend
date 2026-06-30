@@ -40,16 +40,22 @@ public class DataSyncService {
 
     @Transactional
     public void syncDailyClosingPrices() {
-        List<TwseStockDayDTO> dtoList = twseApiService.fetchDailyClosingPrices();
-        
-        // ─── 步驟零：精準取得證交所當前數據的真實交易日期 (以 0050 最新成交日為真理之源) ───
+        // ─── 步驟零：獲取有庫存的標的清單 (防呆預設 0050, 0056, 00878) ───
+        List<String> distinctTickers = userPortfolioRepository.findDistinctTickers();
+        Set<String> targetTickers = new HashSet<>(distinctTickers);
+        if (targetTickers.isEmpty()) {
+            targetTickers.addAll(Arrays.asList("0050", "0056", "00878"));
+        }
+        System.out.println("[DataSync] 今日同步目標標的清單: " + targetTickers);
+
+        // ─── 步驟零點五：精準取得證交所當前數據的真實交易日期 (以 0050 最新成交日為真理之源) ───
         LocalDate todayZone = LocalDate.now(java.time.ZoneId.of("Asia/Taipei"));
         String currentYearMonth = todayZone.format(DateTimeFormatter.ofPattern("yyyyMM"));
-        List<TwseHistoryDayDTO> historyList = twseApiService.fetchMonthlyHistory("0050", currentYearMonth);
+        List<TwseHistoryDayDTO> historyList0050 = twseApiService.fetchMonthlyHistory("0050", currentYearMonth);
         
         LocalDate actualTradeDate = todayZone; // 預設 Fallback
-        if (historyList != null && !historyList.isEmpty()) {
-            TwseHistoryDayDTO lastRecord = historyList.get(historyList.size() - 1);
+        if (historyList0050 != null && !historyList0050.isEmpty()) {
+            TwseHistoryDayDTO lastRecord = historyList0050.get(historyList0050.size() - 1);
             try {
                 String[] parts = lastRecord.dateRoc().split("/");
                 if (parts.length == 3) {
@@ -64,37 +70,40 @@ public class DataSyncService {
             }
         }
 
-        // ─── 步驟零點五：獲取有庫存的標的清單 (防呆預設 0050, 0056, 00878) ───
-        List<String> distinctTickers = userPortfolioRepository.findDistinctTickers();
-        Set<String> targetTickers = new HashSet<>(distinctTickers);
-        if (targetTickers.isEmpty()) {
-            targetTickers.addAll(Arrays.asList("0050", "0056", "00878"));
-        }
-        System.out.println("[DataSync] 今日同步目標標的清單: " + targetTickers);
-
-        // ─── 步驟一：解析 TWSE 原始資料，過濾掉無效資料 ───────────────────
-        // 使用 Map<ticker, closingPrice> 儲存所有有效的今日資料
+        // ─── 步驟一：逐一呼叫官網歷史 API 抓取各標的今日最新收盤價 (每次請求間隔 1 秒防限流) ───────
         Map<String, TwseValidData> validDataMap = new LinkedHashMap<>();
-        for (TwseStockDayDTO dto : dtoList) {
-            String ticker = dto.getCode();
-            if (ticker == null || !targetTickers.contains(ticker)) {
-                continue; // 僅同步有庫存或預設指標性標的，大幅減輕資料庫與記憶體負擔
-            }
-            String closingPriceStr = dto.getClosingPrice();
-
-            if (closingPriceStr == null || closingPriceStr.trim().isEmpty()) {
+        for (String ticker : targetTickers) {
+            try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+            List<TwseHistoryDayDTO> historyList = twseApiService.fetchMonthlyHistory(ticker, currentYearMonth);
+            if (historyList == null || historyList.isEmpty()) {
+                System.err.println("[DataSync] 無法獲取標的 " + ticker + " 當月歷史收盤價，跳過。");
                 continue;
             }
+
+            TwseHistoryDayDTO lastRecord = historyList.get(historyList.size() - 1);
             try {
-                BigDecimal closingPrice = new BigDecimal(closingPriceStr.replace(",", ""));
-                validDataMap.put(ticker, new TwseValidData(ticker, dto.getName(), closingPrice));
+                String[] parts = lastRecord.dateRoc().split("/");
+                if (parts.length == 3) {
+                    int year = Integer.parseInt(parts[0]) + 1911;
+                    int month = Integer.parseInt(parts[1]);
+                    int day = Integer.parseInt(parts[2]);
+                    LocalDate recordDate = LocalDate.of(year, month, day);
+
+                    // 確保日期對齊今日真實交易日
+                    if (recordDate.equals(actualTradeDate)) {
+                        String priceStr = lastRecord.closingPrice().replace(",", "").trim();
+                        if (!priceStr.isEmpty() && !priceStr.equals("--")) {
+                            BigDecimal closingPrice = new BigDecimal(priceStr);
+                            validDataMap.put(ticker, new TwseValidData(ticker, "", closingPrice));
+                        }
+                    }
+                }
             } catch (Exception e) {
-                // 忽略無效格式的收盤價 (例如 "--")
+                System.err.println("[DataSync] 解析標的 " + ticker + " 最新股價失敗: " + e.getMessage());
             }
         }
 
         // ─── 步驟二：一次查詢所有已存在的 AssetInfo，建立快取 Map ──────────
-        // 改成 1 次查詢，取代原本每筆都查一次
         Map<String, AssetInfo> existingAssetMap = assetInfoRepository.findAll()
                 .stream()
                 .collect(Collectors.toMap(AssetInfo::getTicker, a -> a));
