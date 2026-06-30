@@ -121,31 +121,51 @@ public class DataSyncService {
             }
         }
 
-        // ─── 步驟四：一次查詢今天已存在的 PriceHistory，建立快取 Set ────────
-        // 避免重複寫入同一天的收盤價
-        Set<Long> existingPriceAssetIds = priceHistoryRepository
+        // ─── 步驟四：一次查詢今天已存在的 PriceHistory，建立快取 Map ────────
+        // 方便比對進行 Upsert (新增或覆蓋更新)
+        Map<Long, PriceHistory> existingPriceMap = priceHistoryRepository
                 .findAllByTradeDate(actualTradeDate)
                 .stream()
-                .map(ph -> ph.getAsset().getAssetId())
-                .collect(Collectors.toSet());
+                .collect(Collectors.toMap(ph -> ph.getAsset().getAssetId(), ph -> ph, (ph1, ph2) -> ph1));
 
-        // ─── 步驟五：建立今日 PriceHistory 清單，批次寫入 ───────────────────
-        List<PriceHistory> newPriceHistories = new ArrayList<>();
+        // ─── 步驟五：建立今日 PriceHistory 清單，批次寫入或更新 ───────────────
+        List<PriceHistory> toSaveList = new ArrayList<>();
+        int updatedCount = 0;
+        int insertedCount = 0;
+
         for (TwseValidData data : validDataMap.values()) {
             AssetInfo asset = existingAssetMap.get(data.ticker());
-            if (asset == null || existingPriceAssetIds.contains(asset.getAssetId())) {
-                continue; // 資產不存在或今天已寫過，跳過
+            if (asset == null) {
+                continue; // 資產不存在，跳過
             }
-            PriceHistory history = new PriceHistory();
-            history.setAsset(asset);
-            history.setTradeDate(actualTradeDate);
-            history.setClosingPrice(data.closingPrice());
-            newPriceHistories.add(history);
+
+            if (existingPriceMap.containsKey(asset.getAssetId())) {
+                PriceHistory existingPh = existingPriceMap.get(asset.getAssetId());
+                // 若收盤價不同，則覆蓋更新，達到自癒效果
+                if (existingPh.getClosingPrice().compareTo(data.closingPrice()) != 0) {
+                    existingPh.setClosingPrice(data.closingPrice());
+                    toSaveList.add(existingPh);
+                    updatedCount++;
+                    System.out.printf("[DataSync] 偵測到 %s 今日收盤價變更 (舊: %s, 新: %s)，執行自癒覆蓋。%n", 
+                            data.ticker(), existingPh.getClosingPrice(), data.closingPrice());
+                }
+            } else {
+                PriceHistory newPh = new PriceHistory();
+                newPh.setAsset(asset);
+                newPh.setTradeDate(actualTradeDate);
+                newPh.setClosingPrice(data.closingPrice());
+                toSaveList.add(newPh);
+                insertedCount++;
+            }
         }
-        // 分批寫入 PriceHistory
-        for (int i = 0; i < newPriceHistories.size(); i += BATCH_SIZE) {
-            List<PriceHistory> batch = newPriceHistories.subList(i, Math.min(i + BATCH_SIZE, newPriceHistories.size()));
-            priceHistoryRepository.saveAll(batch);
+
+        // 分批寫入/更新 PriceHistory
+        if (!toSaveList.isEmpty()) {
+            for (int i = 0; i < toSaveList.size(); i += BATCH_SIZE) {
+                List<PriceHistory> batch = toSaveList.subList(i, Math.min(i + BATCH_SIZE, toSaveList.size()));
+                priceHistoryRepository.saveAll(batch);
+            }
+            System.out.printf("[DataSync] 今日收盤價同步完成！新增: %d 筆，更新自癒: %d 筆。%n", insertedCount, updatedCount);
         }
     }
 

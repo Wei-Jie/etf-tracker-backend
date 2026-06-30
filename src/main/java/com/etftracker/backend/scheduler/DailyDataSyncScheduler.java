@@ -37,7 +37,7 @@ public class DailyDataSyncScheduler {
      * 觸發時間：每週一至週五下午 15:30 (台灣時間 Asia/Taipei)
      * 此時股市已收盤，且證交所已結算並公布當日收盤數據。
      */
-    @Scheduled(cron = "0 30 15 * * MON-FRI", zone = "Asia/Taipei")
+    @Scheduled(cron = "0 0 17 * * MON-FRI", zone = "Asia/Taipei")
     public void autoSyncDailyClosingPrices() {
         System.out.println("[Scheduler] 開始執行每日收盤價自動同步排程，當前時間: " + LocalDateTime.now());
         try {
